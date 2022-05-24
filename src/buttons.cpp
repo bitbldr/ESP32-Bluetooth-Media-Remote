@@ -1,81 +1,111 @@
 #include <Arduino.h>
-// #include <LinkedList.h>
 #include <FunctionalInterrupt.h>
 #include <functional>
 #include "buttons.h"
-
-#define MAX_PINS 32
+#include <stack>
+#include <map>
 
 using InterruptFn = std::function<void(void)>;
+
+const unsigned long DEBOUNCE_MS = 50;
 
 class Handler
 {
 public:
-    unsigned long trigger_ms;
+    unsigned long lastEvent_ms;
     uint8_t pin;
     void (*cb)();
 
     Handler(uint8_t pin, void (*cb)())
     {
-        this->trigger_ms = millis();
+        this->lastEvent_ms = millis();
         this->pin = pin;
         this->cb = cb;
     }
 };
 
-// unsigned long triggers[32];
-// void (*callbacks[32])();
-Handler *handlers[MAX_PINS];
-
-void init()
+enum ButtonEventType
 {
-    for (int i = 0; i < MAX_PINS; i++)
+    btn_change,
+    error
+};
+
+class ButtonEvent
+{
+public:
+    uint8_t pin;
+    ButtonEventType event;
+
+    ButtonEvent(uint8_t pin, ButtonEventType event)
     {
-        handlers[i] = 0;
+        this->pin = pin;
+        this->event = event;
+    }
+};
+
+std::map<uint8_t, Handler *> handlers;
+std::stack<ButtonEvent *> eventStack;
+
+void process_event(ButtonEvent e)
+{
+    if (handlers[e.pin] != NULL)
+    {
+        // Handler *h = handlers[e.pin];
+        Handler *h = handlers.at(e.pin);
+        unsigned long now = millis();
+
+        // if the time between this event and the last is within the debounce time, ignore it
+        if ((now - h->lastEvent_ms) < DEBOUNCE_MS)
+        {
+            return;
+        }
+
+        if (digitalRead(e.pin) == HIGH)
+        {
+            h->cb();
+        }
+
+        h->lastEvent_ms = now;
+    }
+    else
+    {
+        Serial.printf("Error: No handler registered for pin %d\n", e.pin);
     }
 }
 
-// LinkedList<Handler*> handlers = LinkedList<Handler*>();
-
-void btn_down(uint8_t pin, void (*cb)())
+void buttonEventLoop()
 {
-    Serial.println("btn_down");
-    handlers[pin] = new Handler(pin, cb);
-}
-
-void btn_up(uint8_t pin)
-{
-    Serial.println("btn_up");
-    if (handlers[pin] != 0)
+    while (!eventStack.empty())
     {
-        Handler *h = handlers[pin];
-        h->cb();
+        // critical code - handler must complete and be cleaned up without an interrupt
+        noInterrupts();
 
-        handlers[pin] = 0;
+        ButtonEvent *e = eventStack.top();
+        process_event(*e);
+        eventStack.pop();
+        delete e;
+
+        interrupts();
     }
 }
 
 void onClick(uint8_t pin, void (*cb)())
 {
-    // TODO: handle the error condition when pin is outside of triggers bounds
+    // handle the error condition when pin is already assigned to a handler
+    if (handlers.find(pin) != handlers.end())
+    {
+        Serial.printf("Error: Pin %d is already assigned to an event handler", pin);
+        return;
+    }
 
-    Serial.println("onClick");
+    // attach the callback to a new handler for this pin
+    handlers[pin] = new Handler(pin, cb);
 
-    InterruptFn down_fn{
-        [pin, cb]()
-        {
-            Serial.println("down_fn");
-            btn_down(pin, cb);
-        }};
-
-    attachInterrupt(digitalPinToInterrupt(pin), down_fn, FALLING);
-
-    InterruptFn up_fn{
+    InterruptFn btn_change_fn{
         [pin]()
         {
-            Serial.println("up_fn");
-            btn_up(pin);
+            eventStack.push(new ButtonEvent(pin, btn_change));
         }};
 
-    attachInterrupt(digitalPinToInterrupt(pin), up_fn, RISING);
+    attachInterrupt(digitalPinToInterrupt(pin), btn_change_fn, CHANGE);
 }
