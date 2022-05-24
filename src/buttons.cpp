@@ -7,7 +7,8 @@
 
 using InterruptFn = std::function<void(void)>;
 
-const unsigned long DEBOUNCE_MS = 50;
+const unsigned long DEBOUNCE_MS = 100;
+unsigned long lastDebounceEvent_ms = 0;
 
 class Handler
 {
@@ -24,43 +25,17 @@ public:
     }
 };
 
-enum ButtonEventType
-{
-    btn_change,
-    error
-};
-
-class ButtonEvent
-{
-public:
-    uint8_t pin;
-    ButtonEventType event;
-
-    ButtonEvent(uint8_t pin, ButtonEventType event)
-    {
-        this->pin = pin;
-        this->event = event;
-    }
-};
-
 std::map<uint8_t, Handler *> handlers;
-std::stack<ButtonEvent *> eventStack;
+std::stack<uint8_t> eventStack;
 
-void process_event(ButtonEvent e)
+void process_event(uint8_t pin)
 {
-    if (handlers[e.pin] != NULL)
+    if (handlers[pin] != NULL)
     {
-        // Handler *h = handlers[e.pin];
-        Handler *h = handlers.at(e.pin);
         unsigned long now = millis();
+        Handler *h = handlers.at(pin);
 
-        // if the time between this event and the last is within the debounce time, ignore it
-        if ((now - h->lastEvent_ms) < DEBOUNCE_MS)
-        {
-            return;
-        }
-
-        if (digitalRead(e.pin) == HIGH)
+        if (digitalRead(pin) == HIGH)
         {
             h->cb();
         }
@@ -69,24 +44,24 @@ void process_event(ButtonEvent e)
     }
     else
     {
-        Serial.printf("Error: No handler registered for pin %d\n", e.pin);
+        Serial.printf("Error: No handler registered for pin %d\n", pin);
     }
 }
 
 void buttonEventLoop()
 {
+    // critical code - handler must complete and be cleaned up without an interrupt
+    noInterrupts();
+
     while (!eventStack.empty())
     {
-        // critical code - handler must complete and be cleaned up without an interrupt
-        noInterrupts();
-
-        ButtonEvent *e = eventStack.top();
-        process_event(*e);
+        uint8_t pin = eventStack.top();
+        process_event(pin);
         eventStack.pop();
-        delete e;
-
-        interrupts();
     }
+
+    // reenable interrupts
+    interrupts();
 }
 
 void onClick(uint8_t pin, void (*cb)())
@@ -104,7 +79,14 @@ void onClick(uint8_t pin, void (*cb)())
     InterruptFn btn_change_fn{
         [pin]()
         {
-            eventStack.push(new ButtonEvent(pin, btn_change));
+            unsigned long now = millis();
+            if ((now - lastDebounceEvent_ms) < DEBOUNCE_MS)
+            {
+                return;
+            }
+
+            eventStack.push(pin);
+            lastDebounceEvent_ms = now;
         }};
 
     attachInterrupt(digitalPinToInterrupt(pin), btn_change_fn, CHANGE);

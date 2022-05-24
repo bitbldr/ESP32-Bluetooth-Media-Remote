@@ -27,10 +27,23 @@ void onVolDownClick()
   Serial.printf("Vol -\n");
 }
 
+void blinkLoop()
+{
+  unsigned long now = millis();
+  if (now % 1000 < 500)
+  {
+    digitalWrite(PWR_LED, LOW);
+  }
+  else
+  {
+    digitalWrite(PWR_LED, HIGH);
+  }
+}
+
 void setup()
 {
   Serial.begin(115200);
-  // delay(1000);
+  delay(500);
 
   pinMode(PWR_LED, OUTPUT);
   pinMode(PLAY_PAUSE, INPUT_PULLUP);
@@ -40,12 +53,10 @@ void setup()
   onClick(PLAY_PAUSE, onPlayPauseClick);
   onClick(VOL_UP, onVolUpClick);
   onClick(VOL_DOWN, onVolDownClick);
-  // attachInterrupt(digitalPinToInterrupt(PLAY_PAUSE), onPlayPauseClick, CHANGE);
-  // attachInterrupt(digitalPinToInterrupt(VOL_UP), onVolUpClick, CHANGE);
-  // attachInterrupt(digitalPinToInterrupt(VOL_DOWN), onVolDownClick, CHANGE);
 }
 
 void loop()
 {
+  blinkLoop();
   buttonEventLoop();
 }
