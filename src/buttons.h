@@ -3,6 +3,8 @@
 
 void buttonEventLoop();
 void onClick(uint8_t pin, void (*cb)());
+void onDoubleClick(uint8_t pin, void (*cb)());
+void onPressHold(uint8_t pin, void (*cb)());
 
 // void onMultiClick(uint8_t pin, void (*cb)());
 // void onHold(uint8_t pin, unsigned long time, void (*cb)());

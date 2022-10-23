@@ -10,11 +10,22 @@ uint8_t VOL_UP = 18;
 uint8_t VOL_DOWN = 19;
 
 RTC_DATA_ATTR int clickCount = 0;
+RTC_DATA_ATTR int dblClickCount = 0;
+RTC_DATA_ATTR int pressHoldCount = 0;
 
 void onPlayPauseClick()
 {
-  Serial.printf("Play/Pause clicked %d times!\n", clickCount);
-  clickCount++;
+  Serial.printf("Play/Pause clicked %d times!\n", ++clickCount);
+}
+
+void onPlayPauseDoubleClick()
+{
+  Serial.printf("Play/Pause double-clicked %d times!\n", ++dblClickCount);
+}
+
+void onPlayPausePressHold()
+{
+  Serial.printf("Play/Pause press and hold %d times!\n", ++pressHoldCount);
 }
 
 void onVolUpClick()
@@ -51,6 +62,8 @@ void setup()
   pinMode(VOL_DOWN, INPUT_PULLUP);
 
   onClick(PLAY_PAUSE, onPlayPauseClick);
+  onDoubleClick(PLAY_PAUSE, onPlayPauseDoubleClick);
+  onPressHold(PLAY_PAUSE, onPlayPausePressHold);
   onClick(VOL_UP, onVolUpClick);
   onClick(VOL_DOWN, onVolDownClick);
 }
