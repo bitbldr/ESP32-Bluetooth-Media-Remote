@@ -72,15 +72,34 @@ public:
     }
 };
 
+enum change_state
+{
+    rising,
+    falling
+};
+
+class ChangeInterrupt
+{
+public:
+    uint8_t pin;
+    change_state state;
+
+    ChangeInterrupt(uint8_t pin, change_state state)
+    {
+        this->pin = pin;
+        this->state = state;
+    }
+};
+
 std::map<uint8_t, Handler *> handlers;
 std::map<uint8_t, unsigned long> debounceLocks;
-std::stack<uint8_t> changeInterrupts;
+std::stack<ChangeInterrupt *> changeInterrupts;
 std::map<uint8_t, PendingEvent *> pendingEvents;
 
-void processChangeInterrupts(uint8_t pin)
+void processChangeInterrupt(ChangeInterrupt *interrupt)
 {
     unsigned long now = millis();
-    int pinState = digitalRead(pin);
+    uint8_t pin = interrupt->pin;
 
     // if debounce lock was set from the latest interrupt, initialize it to now
     // TODO: refactor debounceLock to be member of handler
@@ -98,7 +117,7 @@ void processChangeInterrupts(uint8_t pin)
         PendingEvent *p = pendingEvents[pin];
         p->lastEvent_ms = now;
 
-        if (pinState == HIGH)
+        if (interrupt->state == rising)
         {
             // pin change is low -> high, track as another click
             p->clickCount++;
@@ -106,7 +125,7 @@ void processChangeInterrupts(uint8_t pin)
     }
     else
     {
-        if (pinState == LOW)
+        if (interrupt->state == falling)
         {
             DEBUG2("DEBUG: create a new pending event for pin %d\n", pin);
 
@@ -120,10 +139,10 @@ void processChangeInterrupts(uint8_t pin)
     }
 }
 
-void clearPendingEvent(uint8_t pendingEventKey)
+void clearPendingEvent(std::map<uint8_t, PendingEvent *>::iterator i, PendingEvent *e)
 {
-    delete pendingEvents[pendingEventKey];
-    pendingEvents.erase(pendingEventKey);
+    delete e;
+    pendingEvents.erase(i);
 }
 
 void cleanExpiredDebounceLocks()
@@ -143,14 +162,12 @@ void cleanExpiredDebounceLocks()
 
 void processPendingEvents()
 {
-    std::stack<uint8_t> cleanupEvents;
-    for (std::pair<const uint8_t, PendingEvent *> pair : pendingEvents)
+    for (auto i = pendingEvents.begin(); i != pendingEvents.end(); ++i)
     {
-        uint8_t pendingEventKey = pair.first;
+        PendingEvent *e = (*i).second;
 
-        DEBUG2("pendingEventKey %d\n", pendingEventKey);
+        DEBUG2("pendingEvent pin %d\n", e->handler->pin);
 
-        PendingEvent *e = pair.second;
         unsigned long now = millis();
         unsigned long timeElapsed_ms = now - e->lastEvent_ms;
         Handler *h = e->handler;
@@ -162,7 +179,8 @@ void processPendingEvents()
             // trigger press and hold event
             h->onPressHoldFn();
 
-            cleanupEvents.push(pendingEventKey);
+            clearPendingEvent(i, e);
+            break;
         }
         else if (h->onDoubleClickFn != NULL && timeElapsed_ms > MULTI_CLICK_THRESHOLD_MS && pinState == HIGH)
         {
@@ -177,28 +195,22 @@ void processPendingEvents()
                 h->onClickFn();
             }
 
-            cleanupEvents.push(pendingEventKey);
+            clearPendingEvent(i, e);
         }
         else if (h->onPressHoldFn == NULL && h->onDoubleClickFn == NULL && pinState == HIGH)
         {
             // trigger single-click event
             h->onClickFn();
 
-            cleanupEvents.push(pendingEventKey);
+            clearPendingEvent(i, e);
         }
         else if (timeElapsed_ms > EVENT_TIMEOUT)
         {
             // the event has timed out and never completed for some reason
             // gracefully clear it without triggering anything
-            cleanupEvents.push(pendingEventKey);
+            clearPendingEvent(i, e);
+            break;
         }
-    }
-
-    while (!cleanupEvents.empty())
-    {
-        uint8_t key = cleanupEvents.top();
-        clearPendingEvent(key);
-        cleanupEvents.pop();
     }
 }
 
@@ -209,16 +221,17 @@ void buttonEventLoop()
 
     while (!changeInterrupts.empty())
     {
-        uint8_t pin = changeInterrupts.top();
-        processChangeInterrupts(pin);
+        ChangeInterrupt *interrupt = changeInterrupts.top();
+        processChangeInterrupt(interrupt);
+        delete interrupt;
         changeInterrupts.pop();
     }
 
-    // re-enable interrupts
-    interrupts();
-
     processPendingEvents();
     cleanExpiredDebounceLocks();
+
+    // re-enable interrupts
+    interrupts();
 }
 
 void maybeInitializeHandler(uint8_t pin)
@@ -235,7 +248,16 @@ void maybeInitializeHandler(uint8_t pin)
             {
                 if (!debounceLocks[pin])
                 {
-                    changeInterrupts.push(pin);
+                    if (digitalRead(pin) == HIGH)
+                    {
+                        changeInterrupts.push(new ChangeInterrupt(pin, rising));
+                    }
+                    else
+                    {
+
+                        changeInterrupts.push(new ChangeInterrupt(pin, falling));
+                    }
+
                     debounceLocks[pin] = true;
                 }
             }};
