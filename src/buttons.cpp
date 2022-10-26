@@ -3,23 +3,23 @@
 #include <functional>
 #include "buttons.h"
 #include <stack>
-#include <map>
+#include <unordered_map>
 #include <vector>
 
-// #define DEBUG(x)          \
-//     do                    \
-//     {                     \
-//         Serial.printf(x); \
-//     } while (0)
+#define DEBUG(x)          \
+    do                    \
+    {                     \
+        Serial.printf(x); \
+    } while (0)
 
-// #define DEBUG2(x, y)         \
-//     do                       \
-//     {                        \
-//         Serial.printf(x, y); \
-//     } while (0)
+#define DEBUG2(x, y)         \
+    do                       \
+    {                        \
+        Serial.printf(x, y); \
+    } while (0)
 
-#define DEBUG(x)
-#define DEBUG2(x, y)
+// #define DEBUG(x)
+// #define DEBUG2(x, y)
 
 using InterruptFn = std::function<void(void)>;
 
@@ -32,6 +32,7 @@ class Handler
 {
 public:
     uint8_t pin;
+    unsigned long debounceLock;
 
     void (*onClickFn)();
     void (*onDoubleClickFn)();
@@ -40,6 +41,9 @@ public:
     Handler(uint8_t pin)
     {
         this->pin = pin;
+        this->onClickFn = NULL;
+        this->onDoubleClickFn = NULL;
+        this->onPressHoldFn = NULL;
     }
 
     void registerClickHandler(void (*cb)())
@@ -91,26 +95,24 @@ public:
     }
 };
 
-std::map<uint8_t, Handler *> handlers;
-std::map<uint8_t, unsigned long> debounceLocks;
+std::unordered_map<uint8_t, Handler *> handlers;
 std::stack<ChangeInterrupt *> changeInterrupts;
-std::map<uint8_t, PendingEvent *> pendingEvents;
+std::unordered_map<uint8_t, PendingEvent *> pendingEvents;
 
 void processChangeInterrupt(ChangeInterrupt *interrupt)
 {
     unsigned long now = millis();
     uint8_t pin = interrupt->pin;
+    Handler *h = handlers[pin];
 
     // if debounce lock was set from the latest interrupt, initialize it to now
-    // TODO: refactor debounceLock to be member of handler
-    if (debounceLocks[pin] == true)
+    if (h->debounceLock == true)
     {
-        debounceLocks[pin] = now;
+        h->debounceLock = now;
     }
 
-    Handler *h = handlers[pin];
     // TODO: use pendingEvents.count(pin) instead to check if key exists
-    if (pendingEvents.find(pin) == pendingEvents.end())
+    if (pendingEvents.count(pin) == 0)
     {
         if (interrupt->state == falling)
         {
@@ -134,7 +136,7 @@ void processChangeInterrupt(ChangeInterrupt *interrupt)
     }
 }
 
-void clearPendingEvent(std::map<uint8_t, PendingEvent *>::iterator i, PendingEvent *e)
+void clearPendingEvent(std::unordered_map<uint8_t, PendingEvent *>::iterator i, PendingEvent *e)
 {
     delete e;
     pendingEvents.erase(i);
@@ -143,14 +145,13 @@ void clearPendingEvent(std::map<uint8_t, PendingEvent *>::iterator i, PendingEve
 void cleanExpiredDebounceLocks()
 {
     unsigned long now = millis();
-    for (std::pair<const uint8_t, unsigned long> pair : debounceLocks)
+    for (std::pair<const uint8_t, Handler *> pair : handlers)
     {
-        unsigned long pin = pair.first;
-        unsigned long lock = pair.second;
+        unsigned long lock = pair.second->debounceLock;
         if (lock && lock - now > DEBOUNCE_THRESHOLD_MS)
         {
             // clear the debounce lock
-            debounceLocks[pin] = false;
+            pair.second->debounceLock = false;
         }
     }
 }
@@ -228,7 +229,7 @@ void buttonEventLoop()
 void maybeInitializeHandler(uint8_t pin)
 {
     // check if the pin is already assigned to a handler
-    if (handlers.find(pin) == handlers.end())
+    if (handlers.count(pin) == 0)
     {
         // create a new handler for this pin
         handlers[pin] = new Handler(pin);
@@ -237,11 +238,12 @@ void maybeInitializeHandler(uint8_t pin)
         InterruptFn btn_change_fn{
             [pin]()
             {
-                if (!debounceLocks[pin])
+                Handler *h = handlers.at(pin);
+                if (!h->debounceLock)
                 {
                     changeInterrupts.push(new ChangeInterrupt(pin, digitalRead(pin) == HIGH ? rising : falling));
 
-                    debounceLocks[pin] = true;
+                    h->debounceLock = true;
                 }
             }};
 
