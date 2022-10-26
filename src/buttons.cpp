@@ -109,10 +109,19 @@ void processChangeInterrupt(ChangeInterrupt *interrupt)
     }
 
     Handler *h = handlers[pin];
-    if (pendingEvents[pin] != NULL)
+    // TODO: use pendingEvents.count(pin) instead to check if key exists
+    if (pendingEvents.find(pin) == pendingEvents.end())
     {
-        DEBUG2("DEBUG: pending event already exists for pin %d\n", pin);
+        if (interrupt->state == falling)
+        {
+            // pin changed from a high -> low, track new pending event
+            PendingEvent *e = new PendingEvent(h);
 
+            pendingEvents[pin] = e;
+        }
+    }
+    else
+    {
         // a pending event already exists for this pin, update it
         PendingEvent *p = pendingEvents[pin];
         p->lastEvent_ms = now;
@@ -121,20 +130,6 @@ void processChangeInterrupt(ChangeInterrupt *interrupt)
         {
             // pin change is low -> high, track as another click
             p->clickCount++;
-        }
-    }
-    else
-    {
-        if (interrupt->state == falling)
-        {
-            DEBUG2("DEBUG: create a new pending event for pin %d\n", pin);
-
-            // pin changed from a high -> low, track new pending event
-            PendingEvent *e = new PendingEvent(h);
-
-            pendingEvents[pin] = e;
-
-            DEBUG("DEBUG: add to pendingEvents\n");
         }
     }
 }
@@ -166,23 +161,20 @@ void processPendingEvents()
     {
         PendingEvent *e = (*i).second;
 
-        DEBUG2("pendingEvent pin %d\n", e->handler->pin);
-
         unsigned long now = millis();
         unsigned long timeElapsed_ms = now - e->lastEvent_ms;
         Handler *h = e->handler;
         uint8_t pin = h->pin;
         int pinState = digitalRead(pin);
 
-        if (h->onPressHoldFn != NULL && e->clickCount < 1 && timeElapsed_ms > PRESS_HOLD_THRESHOLD_MS && pinState == LOW)
+        if (h->onDoubleClickFn == NULL && h->onPressHoldFn == NULL)
         {
-            // trigger press and hold event
-            h->onPressHoldFn();
+            // trigger single-click event
+            h->onClickFn();
 
             clearPendingEvent(i, e);
-            break;
         }
-        else if (h->onDoubleClickFn != NULL && timeElapsed_ms > MULTI_CLICK_THRESHOLD_MS && pinState == HIGH)
+        else if (h->onDoubleClickFn != NULL && pinState == HIGH && timeElapsed_ms > MULTI_CLICK_THRESHOLD_MS)
         {
             if (e->clickCount > 1)
             {
@@ -197,10 +189,10 @@ void processPendingEvents()
 
             clearPendingEvent(i, e);
         }
-        else if (h->onPressHoldFn == NULL && h->onDoubleClickFn == NULL && pinState == HIGH)
+        else if (h->onPressHoldFn != NULL && pinState == LOW && e->clickCount < 1 && timeElapsed_ms > PRESS_HOLD_THRESHOLD_MS)
         {
-            // trigger single-click event
-            h->onClickFn();
+            // trigger press and hold event
+            h->onPressHoldFn();
 
             clearPendingEvent(i, e);
         }
@@ -209,7 +201,6 @@ void processPendingEvents()
             // the event has timed out and never completed for some reason
             // gracefully clear it without triggering anything
             clearPendingEvent(i, e);
-            break;
         }
     }
 }
@@ -248,15 +239,7 @@ void maybeInitializeHandler(uint8_t pin)
             {
                 if (!debounceLocks[pin])
                 {
-                    if (digitalRead(pin) == HIGH)
-                    {
-                        changeInterrupts.push(new ChangeInterrupt(pin, rising));
-                    }
-                    else
-                    {
-
-                        changeInterrupts.push(new ChangeInterrupt(pin, falling));
-                    }
+                    changeInterrupts.push(new ChangeInterrupt(pin, digitalRead(pin) == HIGH ? rising : falling));
 
                     debounceLocks[pin] = true;
                 }
