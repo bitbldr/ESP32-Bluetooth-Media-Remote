@@ -6,21 +6,6 @@
 #include <unordered_map>
 #include <vector>
 
-#define DEBUG(x)          \
-    do                    \
-    {                     \
-        Serial.printf(x); \
-    } while (0)
-
-#define DEBUG2(x, y)         \
-    do                       \
-    {                        \
-        Serial.printf(x, y); \
-    } while (0)
-
-// #define DEBUG(x)
-// #define DEBUG2(x, y)
-
 using InterruptFn = std::function<void(void)>;
 
 const unsigned long DEBOUNCE_THRESHOLD_MS = 100;
