@@ -35,14 +35,14 @@ public:
     unsigned long debounceLock;
 
     void (*onClickFn)();
-    void (*onDoubleClickFn)();
+    void (*onMultiClick)(uint8_t clickCount);
     void (*onPressHoldFn)();
 
     Handler(uint8_t pin)
     {
         this->pin = pin;
         this->onClickFn = NULL;
-        this->onDoubleClickFn = NULL;
+        this->onMultiClick = NULL;
         this->onPressHoldFn = NULL;
     }
 
@@ -51,9 +51,9 @@ public:
         this->onClickFn = cb;
     }
 
-    void registerDoubleClickHandler(void (*cb)())
+    void registeMultiClickHandler(void (*cb)(uint8_t clickCount))
     {
-        this->onDoubleClickFn = cb;
+        this->onMultiClick = cb;
     }
 
     void registerPressHoldHandler(void (*cb)())
@@ -168,19 +168,19 @@ void processPendingEvents()
         uint8_t pin = h->pin;
         int pinState = digitalRead(pin);
 
-        if (h->onDoubleClickFn == NULL && h->onPressHoldFn == NULL)
+        if (h->onMultiClick == NULL && h->onPressHoldFn == NULL && pinState == HIGH)
         {
             // trigger single-click event
             h->onClickFn();
 
             clearPendingEvent(i, e);
         }
-        else if (h->onDoubleClickFn != NULL && pinState == HIGH && timeElapsed_ms > MULTI_CLICK_THRESHOLD_MS)
+        else if (h->onMultiClick != NULL && pinState == HIGH && timeElapsed_ms > MULTI_CLICK_THRESHOLD_MS)
         {
             if (e->clickCount > 1)
             {
                 // trigger double-click event
-                h->onDoubleClickFn();
+                h->onMultiClick(e->clickCount);
             }
             else if (h->onClickFn != NULL)
             {
@@ -259,12 +259,12 @@ void onClick(uint8_t pin, void (*cb)())
     handlers[pin]->registerClickHandler(cb);
 }
 
-void onDoubleClick(uint8_t pin, void (*cb)())
+void onMultiClick(uint8_t pin, void (*cb)(uint8_t clickCount))
 {
     maybeInitializeHandler(pin);
 
     // assign double click handler
-    handlers[pin]->registerDoubleClickHandler(cb);
+    handlers[pin]->registeMultiClickHandler(cb);
 }
 
 void onPressHold(uint8_t pin, void (*cb)())

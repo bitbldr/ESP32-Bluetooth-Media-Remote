@@ -18,9 +18,20 @@ void onPlayPauseClick()
   Serial.printf("Play/Pause clicked %d times!\n", ++clickCount);
 }
 
-void onPlayPauseDoubleClick()
+void onPlayPauseonMultiClick(uint8_t clickCount)
 {
-  Serial.printf("Play/Pause double-clicked %d times!\n", ++dblClickCount);
+  if (clickCount == 2)
+  {
+    Serial.printf("Play/Pause double-clicked %d times!\n", ++dblClickCount);
+  }
+  else if (clickCount == 3)
+  {
+    Serial.printf("Play/Pause triple-clicked %d times!\n", ++dblClickCount);
+  }
+  else
+  {
+    Serial.printf("Play/Pause multi-clicked %d times!\n", ++dblClickCount);
+  }
 }
 
 void onPlayPausePressHold()
@@ -62,7 +73,7 @@ void setup()
   pinMode(VOL_DOWN, INPUT_PULLUP);
 
   onClick(PLAY_PAUSE, onPlayPauseClick);
-  onDoubleClick(PLAY_PAUSE, onPlayPauseDoubleClick);
+  onMultiClick(PLAY_PAUSE, onPlayPauseonMultiClick);
   onPressHold(PLAY_PAUSE, onPlayPausePressHold);
   onClick(VOL_UP, onVolUpClick);
   onClick(VOL_DOWN, onVolDownClick);
