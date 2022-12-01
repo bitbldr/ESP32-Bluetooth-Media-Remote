@@ -29,21 +29,60 @@ uint8_t PLAY_PAUSE = 15;
 uint8_t VOL_UP = 18;
 uint8_t VOL_DOWN = 19;
 
+unsigned long lastEvent;
+
 RTC_DATA_ATTR int clickCount = 0;
 RTC_DATA_ATTR int dblClickCount = 0;
 RTC_DATA_ATTR int pressHoldCount = 0;
 
+// auto sleep after 5 minutes of inactivity
+const unsigned long AUTO_SLEEP_INACTIVITY_TIMEOUT = 5 * 60 * 1000;
+const bool PREFER_LIGHT_SLEEP = false;
+
+void ledAnimateFadeOff()
+{
+  // Fade out
+  for (int ledVal = 255; ledVal >= 0; ledVal -= 1)
+  {
+    analogWrite(PWR_LED, ledVal);
+    delay(2);
+  }
+}
+
+void ledAnimateFadeOn()
+{
+  // Fade in
+  for (int ledVal = 0; ledVal <= 255; ledVal += 1)
+  {
+    analogWrite(PWR_LED, ledVal);
+    delay(2);
+  }
+}
+
 void goToSleep()
 {
   DEBUG("Going to sleep now\n");
+
   digitalWrite(PWR_LED, LOW);
-  delay(1000);
-  esp_deep_sleep_start();
-  // esp_light_sleep_start();
+  delay(250);
+
+  ledAnimateFadeOff();
+
+  // allow 3 seconds to depress button so that sleep isn't immediately exited
+  delay(3000);
+
+  if (PREFER_LIGHT_SLEEP)
+  {
+    esp_light_sleep_start();
+  }
+  else
+  {
+    esp_deep_sleep_start();
+  }
 }
 
 // Function that prints the reason by which ESP32 has been awaken from sleep
-void print_wakeup_reason()
+esp_sleep_wakeup_cause_t getWakeupReason()
 {
   esp_sleep_wakeup_cause_t wakeup_reason = esp_sleep_get_wakeup_cause();
   switch (wakeup_reason)
@@ -67,6 +106,8 @@ void print_wakeup_reason()
     DEBUG("Wakeup was not caused by deep sleep\n");
     break;
   }
+
+  return wakeup_reason;
 }
 
 void onPlayPauseClick()
@@ -77,6 +118,8 @@ void onPlayPauseClick()
   {
     bleKeyboard.write(KEY_MEDIA_PLAY_PAUSE);
   }
+
+  lastEvent = millis();
 }
 
 void onPlayPauseOnMultiClick(uint8_t clickCount)
@@ -103,6 +146,8 @@ void onPlayPauseOnMultiClick(uint8_t clickCount)
   {
     DEBUG2("Play/Pause multi-clicked %d times!\n", ++dblClickCount);
   }
+
+  lastEvent = millis();
 }
 
 void onPlayPausePressHold()
@@ -120,6 +165,8 @@ void onVolUpClick()
   {
     bleKeyboard.write(KEY_MEDIA_VOLUME_UP);
   }
+
+  lastEvent = millis();
 }
 
 void onVolDownClick()
@@ -130,12 +177,14 @@ void onVolDownClick()
   {
     bleKeyboard.write(KEY_MEDIA_VOLUME_DOWN);
   }
+
+  lastEvent = millis();
 }
 
 void ledBlinkLoop()
 {
   unsigned long now = millis();
-  if (now % 1000 < 500)
+  if (now % 200 < 100)
   {
     digitalWrite(PWR_LED, LOW);
   }
@@ -153,19 +202,49 @@ void ledSolidLoop()
 void setup()
 {
   Serial.begin(115200);
-  delay(500);
-
-  // Print the wakeup reason for ESP32
-  print_wakeup_reason();
-
-  DEBUG("Starting BLE work!");
-  bleKeyboard.setName("BT Media Remote");
-  bleKeyboard.begin();
 
   pinMode(PWR_LED, OUTPUT);
   pinMode(PLAY_PAUSE, INPUT_PULLUP);
   pinMode(VOL_UP, INPUT_PULLUP);
   pinMode(VOL_DOWN, INPUT_PULLUP);
+
+  // check the wakeup reason for ESP32
+  if (getWakeupReason() == 2)
+  {
+    // wakeup from deep sleep was caused by RTC_CNTL play/pause button
+    // require a presshold for 3 seconds to ensure wakeup is not accidental
+    unsigned long UNLOCK_THRESHOLD = 3 * 1000;
+    unsigned long start = millis();
+    unsigned long now = start;
+
+    while (digitalRead(PLAY_PAUSE) == LOW && now - start < UNLOCK_THRESHOLD)
+    {
+      if (millis() % 1000 < 500)
+      {
+        digitalWrite(PWR_LED, LOW);
+      }
+      else
+      {
+        digitalWrite(PWR_LED, HIGH);
+      }
+
+      now = millis();
+    }
+
+    if (digitalRead(PLAY_PAUSE) == HIGH)
+    {
+      // unlock threshold not met, go back to sleep
+      DEBUG("Unlock threshold not met. Going back to sleep\n");
+      esp_sleep_enable_ext0_wakeup(GPIO_NUM_15, 0);
+      esp_deep_sleep_start();
+
+      return;
+    }
+  }
+
+  DEBUG("Starting BLE!\n");
+  bleKeyboard.setName("Blue Media Remote");
+  bleKeyboard.begin();
 
   onClick(PLAY_PAUSE, onPlayPauseClick);
   onMultiClick(PLAY_PAUSE, onPlayPauseOnMultiClick);
@@ -175,10 +254,20 @@ void setup()
 
   // allow button press to wake up the controller
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_15, 0);
+
+  lastEvent = millis();
+
+  ledAnimateFadeOn();
 }
 
 void loop()
 {
+  unsigned long now = millis();
+  if (now - lastEvent > AUTO_SLEEP_INACTIVITY_TIMEOUT)
+  {
+    goToSleep();
+  }
+
   bleKeyboard.isConnected() ? ledSolidLoop() : ledBlinkLoop();
 
   buttonEventLoop();
