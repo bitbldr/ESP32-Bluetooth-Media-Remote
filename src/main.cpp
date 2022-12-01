@@ -4,7 +4,6 @@
 #include <Arduino.h>
 #include "buttons.h"
 
-#define USE_NIMBLE
 #include <BleKeyboard.h>
 
 #define DEBUG(x)      \
@@ -22,7 +21,7 @@
 // #define DEBUG(x)
 // #define DEBUG2(x, y)
 
-BleKeyboard bleKeyboard;
+BleKeyboard bleKeyboard("Blue Button", "bitbldr", 100);
 
 uint8_t PWR_LED = 13;
 uint8_t PLAY_PAUSE = 15;
@@ -63,7 +62,9 @@ void goToSleep()
 {
   DEBUG("Going to sleep now\n");
 
-  digitalWrite(PWR_LED, LOW);
+  // digitalWrite(PWR_LED, LOW);
+  analogWrite(PWR_LED, 0);
+
   delay(250);
 
   ledAnimateFadeOff();
@@ -186,17 +187,17 @@ void ledBlinkLoop()
   unsigned long now = millis();
   if (now % 200 < 100)
   {
-    digitalWrite(PWR_LED, LOW);
+    analogWrite(PWR_LED, 0);
   }
   else
   {
-    digitalWrite(PWR_LED, HIGH);
+    analogWrite(PWR_LED, 255);
   }
 }
 
 void ledSolidLoop()
 {
-  digitalWrite(PWR_LED, HIGH);
+  analogWrite(PWR_LED, 255);
 }
 
 void setup()
@@ -221,11 +222,13 @@ void setup()
     {
       if (millis() % 1000 < 500)
       {
-        digitalWrite(PWR_LED, LOW);
+        // digitalWrite(PWR_LED, LOW);
+        analogWrite(PWR_LED, 0);
       }
       else
       {
-        digitalWrite(PWR_LED, HIGH);
+        // digitalWrite(PWR_LED, HIGH);
+        analogWrite(PWR_LED, 255);
       }
 
       now = millis();
@@ -243,7 +246,6 @@ void setup()
   }
 
   DEBUG("Starting BLE!\n");
-  bleKeyboard.setName("Blue Media Remote");
   bleKeyboard.begin();
 
   onClick(PLAY_PAUSE, onPlayPauseClick);
