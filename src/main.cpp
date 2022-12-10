@@ -36,7 +36,7 @@ RTC_DATA_ATTR int pressHoldCount = 0;
 
 // auto sleep after 5 minutes of inactivity
 const unsigned long AUTO_SLEEP_INACTIVITY_TIMEOUT = 5 * 60 * 1000;
-const bool PREFER_LIGHT_SLEEP = false;
+const bool ENABLE_DEEP_SLEEP = true;
 
 void ledAnimateFadeOff()
 {
@@ -62,23 +62,18 @@ void goToSleep()
 {
   DEBUG("Going to sleep now\n");
 
-  // digitalWrite(PWR_LED, LOW);
-  analogWrite(PWR_LED, 0);
-
-  delay(250);
-
   ledAnimateFadeOff();
 
   // allow 3 seconds to depress button so that sleep isn't immediately exited
   delay(3000);
 
-  if (PREFER_LIGHT_SLEEP)
+  if (ENABLE_DEEP_SLEEP)
   {
-    esp_light_sleep_start();
+    esp_deep_sleep_start();
   }
   else
   {
-    esp_deep_sleep_start();
+    esp_light_sleep_start();
   }
 }
 
