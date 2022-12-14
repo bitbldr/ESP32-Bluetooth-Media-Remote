@@ -207,12 +207,10 @@ void setup()
     {
       if (millis() % 1000 < 500)
       {
-        // digitalWrite(PWR_LED, LOW);
         analogWrite(PWR_LED, 0);
       }
       else
       {
-        // digitalWrite(PWR_LED, HIGH);
         analogWrite(PWR_LED, 255);
       }
 
@@ -258,30 +256,6 @@ void discoverableLoop(unsigned long now)
     analogWrite(PWR_LED, 255);
   }
 }
-
-// uint8_t getBatteryLevel()
-// {
-//   uint16_t vbat = analogRead(VBAT_SENSE) * 2;
-//   // const float battChargingThreshold = 4.0;
-//   const uint16_t battMax = 3700;
-//   const uint16_t battMin = 3000;
-
-//   DEBUG2("vbat %d\n", vbat);
-
-//   if (vbat > battMax)
-//   {
-//     return 100;
-//   }
-//   else if (vbat < battMin)
-//   {
-//     return 0;
-//   }
-//   else
-//   {
-//     DEBUG2("getBatteryLevel %d\n", floor((vbat - battMin) / (battMax - battMin) * 100));
-//     return floor((vbat - battMin) / (battMax - battMin) * 100);
-//   }
-// }
 
 void updateBatteryLevelLoop(unsigned long now)
 {
