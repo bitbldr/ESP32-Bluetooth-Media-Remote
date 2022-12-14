@@ -247,6 +247,11 @@ void setup()
 
 void discoverableLoop(unsigned long now)
 {
+  if (isConnected)
+  {
+    isConnected = false;
+  }
+
   if (now % 200 < 100)
   {
     analogWrite(PWR_LED, 0);
