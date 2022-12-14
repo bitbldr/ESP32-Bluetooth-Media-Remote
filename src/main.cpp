@@ -2,7 +2,9 @@
  * This example turns the ESP32 into a Bluetooth LE keyboard that writes the words, presses Enter, presses a media key and then Ctrl+Alt+Delete
  */
 #include <Arduino.h>
+#include <cmath>
 #include "buttons.h"
+#include "battery.h"
 
 #include <BleKeyboard.h>
 
@@ -27,8 +29,11 @@ uint8_t PWR_LED = 13;
 uint8_t PLAY_PAUSE = 15;
 uint8_t VOL_UP = 18;
 uint8_t VOL_DOWN = 19;
+uint8_t VBAT_SENSE = 35;
 
 unsigned long lastEvent;
+boolean isConnected = false;
+unsigned long lastBatteryLevelUpdate = 0;
 
 RTC_DATA_ATTR int clickCount = 0;
 RTC_DATA_ATTR int dblClickCount = 0;
@@ -37,6 +42,9 @@ RTC_DATA_ATTR int pressHoldCount = 0;
 // auto sleep after 5 minutes of inactivity
 const unsigned long AUTO_SLEEP_INACTIVITY_TIMEOUT = 5 * 60 * 1000;
 const bool ENABLE_DEEP_SLEEP = true;
+
+// update battery level every 5 mins
+const unsigned long BATTERY_UPDATE_INTERVAL_MS = 5 * 60 * 1000;
 
 void ledAnimateFadeOff()
 {
@@ -177,24 +185,6 @@ void onVolDownClick()
   lastEvent = millis();
 }
 
-void ledBlinkLoop()
-{
-  unsigned long now = millis();
-  if (now % 200 < 100)
-  {
-    analogWrite(PWR_LED, 0);
-  }
-  else
-  {
-    analogWrite(PWR_LED, 255);
-  }
-}
-
-void ledSolidLoop()
-{
-  analogWrite(PWR_LED, 255);
-}
-
 void setup()
 {
   Serial.begin(115200);
@@ -257,6 +247,68 @@ void setup()
   ledAnimateFadeOn();
 }
 
+void discoverableLoop(unsigned long now)
+{
+  if (now % 200 < 100)
+  {
+    analogWrite(PWR_LED, 0);
+  }
+  else
+  {
+    analogWrite(PWR_LED, 255);
+  }
+}
+
+// uint8_t getBatteryLevel()
+// {
+//   uint16_t vbat = analogRead(VBAT_SENSE) * 2;
+//   // const float battChargingThreshold = 4.0;
+//   const uint16_t battMax = 3700;
+//   const uint16_t battMin = 3000;
+
+//   DEBUG2("vbat %d\n", vbat);
+
+//   if (vbat > battMax)
+//   {
+//     return 100;
+//   }
+//   else if (vbat < battMin)
+//   {
+//     return 0;
+//   }
+//   else
+//   {
+//     DEBUG2("getBatteryLevel %d\n", floor((vbat - battMin) / (battMax - battMin) * 100));
+//     return floor((vbat - battMin) / (battMax - battMin) * 100);
+//   }
+// }
+
+void updateBatteryLevelLoop(unsigned long now)
+{
+  if (now - lastBatteryLevelUpdate > BATTERY_UPDATE_INTERVAL_MS)
+  {
+    bleKeyboard.setBatteryLevel(getBatteryChargeLevel(VBAT_SENSE));
+    lastBatteryLevelUpdate = now;
+  }
+}
+
+void onConnect()
+{
+  analogWrite(PWR_LED, 255);
+  bleKeyboard.setBatteryLevel(getBatteryChargeLevel(VBAT_SENSE));
+}
+
+void connectedLoop(unsigned long now)
+{
+  if (!isConnected)
+  {
+    isConnected = true;
+    onConnect();
+  }
+
+  updateBatteryLevelLoop(now);
+}
+
 void loop()
 {
   unsigned long now = millis();
@@ -265,7 +317,7 @@ void loop()
     goToSleep();
   }
 
-  bleKeyboard.isConnected() ? ledSolidLoop() : ledBlinkLoop();
+  bleKeyboard.isConnected() ? connectedLoop(now) : discoverableLoop(now);
 
   buttonEventLoop();
 }
