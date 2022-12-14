@@ -158,7 +158,10 @@ void onPlayPausePressHold()
 {
   DEBUG2("Play/Pause press and hold %d times!\n", ++pressHoldCount);
 
-  goToSleep();
+  if (digitalRead(VOL_DOWN) == LOW)
+  {
+    goToSleep();
+  }
 }
 
 void onVolUpClick()
@@ -203,7 +206,7 @@ void setup()
     unsigned long start = millis();
     unsigned long now = start;
 
-    while (digitalRead(PLAY_PAUSE) == LOW && now - start < UNLOCK_THRESHOLD)
+    while (digitalRead(PLAY_PAUSE) == LOW && digitalRead(VOL_DOWN) == LOW && now - start < UNLOCK_THRESHOLD)
     {
       if (millis() % 1000 < 500)
       {
@@ -217,7 +220,7 @@ void setup()
       now = millis();
     }
 
-    if (digitalRead(PLAY_PAUSE) == HIGH)
+    if (digitalRead(PLAY_PAUSE) == HIGH || digitalRead(VOL_DOWN) == HIGH)
     {
       // unlock threshold not met, go back to sleep
       DEBUG("Unlock threshold not met. Going back to sleep\n");
