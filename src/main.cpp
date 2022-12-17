@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include "buttons.h"
 #include "battery.h"
+#include "SonyCamera.h"
 
 #include <BleKeyboard.h>
 
@@ -32,6 +33,7 @@ uint8_t VBAT_SENSE = 35;
 
 unsigned long lastEvent;
 boolean isConnected = false;
+boolean sonyCameraMode = false;
 unsigned long lastBatteryLevelUpdate = 0;
 
 RTC_DATA_ATTR int clickCount = 0;
@@ -117,6 +119,13 @@ void onPlayPauseClick()
 {
   DEBUG2("Play/Pause clicked %d times!\n", ++clickCount);
 
+  if (sonyCameraMode)
+  {
+    sendSony(TAKE_PICTURE);
+
+    return;
+  }
+
   if (bleKeyboard.isConnected())
   {
     bleKeyboard.write(KEY_MEDIA_PLAY_PAUSE);
@@ -166,6 +175,13 @@ void onPlayPausePressHold()
 void onVolUpClick()
 {
   DEBUG("Vol +\n");
+
+  if (sonyCameraMode)
+  {
+    sendSony(PRESS_TO_FOCUS);
+
+    return;
+  }
 
   if (bleKeyboard.isConnected())
   {
@@ -225,6 +241,28 @@ void setup()
       DEBUG("Unlock threshold not met. Going back to sleep\n");
       esp_sleep_enable_ext0_wakeup(GPIO_NUM_15, 0);
       esp_deep_sleep_start();
+
+      return;
+    }
+    if (digitalRead(VOL_UP) == LOW)
+    {
+      DEBUG("Starting Sony Camera Remote!\n");
+      sonyCameraMode = true;
+
+      onClick(PLAY_PAUSE, onPlayPauseClick);
+      onMultiClick(PLAY_PAUSE, onPlayPauseOnMultiClick);
+      onPressHold(PLAY_PAUSE, onPlayPausePressHold);
+      onClick(VOL_UP, onVolUpClick);
+      onClick(VOL_DOWN, onVolDownClick);
+
+      // allow button press to wake up the controller
+      esp_sleep_enable_ext0_wakeup(GPIO_NUM_15, 0);
+
+      lastEvent = millis();
+
+      ledAnimateFadeOn();
+
+      connectToSony();
 
       return;
     }
@@ -290,6 +328,11 @@ void connectedLoop(unsigned long now)
   updateBatteryLevelLoop(now);
 }
 
+// void sonyCameraLoop()
+// {
+//   // loopSonyCamera();
+// }
+
 void loop()
 {
   unsigned long now = millis();
@@ -298,7 +341,31 @@ void loop()
     goToSleep();
   }
 
-  bleKeyboard.isConnected() ? connectedLoop(now) : discoverableLoop(now);
+  if (sonyCameraMode)
+  {
+
+    if (sonyIsConnected())
+    {
+      analogWrite(PWR_LED, 255);
+    }
+    else
+    {
+      if (now % 500 < 250)
+      {
+        analogWrite(PWR_LED, 0);
+      }
+      else
+      {
+        analogWrite(PWR_LED, 255);
+      }
+    }
+
+    sonyCameraLoop();
+  }
+  else
+  {
+    bleKeyboard.isConnected() ? connectedLoop(now) : discoverableLoop(now);
+  }
 
   buttonEventLoop();
 }
