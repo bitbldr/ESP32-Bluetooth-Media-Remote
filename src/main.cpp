@@ -36,6 +36,8 @@ boolean isConnected = false;
 boolean sonyCameraMode = false;
 unsigned long lastBatteryLevelUpdate = 0;
 
+static SonyCamera *camera;
+
 RTC_DATA_ATTR int clickCount = 0;
 RTC_DATA_ATTR int dblClickCount = 0;
 RTC_DATA_ATTR int pressHoldCount = 0;
@@ -121,7 +123,7 @@ void onPlayPauseClick()
 
   if (sonyCameraMode)
   {
-    sendSony(TAKE_PICTURE);
+    camera->trigger();
 
     return;
   }
@@ -178,7 +180,7 @@ void onVolUpClick()
 
   if (sonyCameraMode)
   {
-    sendSony(PRESS_TO_FOCUS);
+    camera->focus();
 
     return;
   }
@@ -248,6 +250,7 @@ void setup()
     {
       DEBUG("Starting Sony Camera Remote!\n");
       sonyCameraMode = true;
+      camera = new SonyCamera();
 
       onClick(PLAY_PAUSE, onPlayPauseClick);
       onMultiClick(PLAY_PAUSE, onPlayPauseOnMultiClick);
@@ -262,7 +265,7 @@ void setup()
 
       ledAnimateFadeOn();
 
-      connectToSony();
+      camera->startScan();
 
       return;
     }
@@ -328,11 +331,6 @@ void connectedLoop(unsigned long now)
   updateBatteryLevelLoop(now);
 }
 
-// void sonyCameraLoop()
-// {
-//   // loopSonyCamera();
-// }
-
 void loop()
 {
   unsigned long now = millis();
@@ -344,7 +342,7 @@ void loop()
   if (sonyCameraMode)
   {
 
-    if (sonyIsConnected())
+    if (camera->connected)
     {
       analogWrite(PWR_LED, 255);
     }
@@ -360,7 +358,7 @@ void loop()
       }
     }
 
-    sonyCameraLoop();
+    camera->loop();
   }
   else
   {

@@ -1,33 +1,22 @@
-
-/** NimBLE_Server Demo:
- *
- *  Demonstrates many of the available features of the NimBLE client library.
- *
- *  Created: on March 24 2020
- *      Author: H2zero
- *
- */
-
-#include <NimBLEDevice.h>
-
-constexpr std::array<uint8_t, 4> CAMERA_MANUFACTURER_LOOKUP = {0x2D, 0x01, 0x03, 0x00};
-const std::__cxx11::string REMOTE_CONTROL_SERVICE_UUID = "8000FF00-FF00-FFFF-FFFF-FFFFFFFFFFFF";
+#include "SonyCamera.h"
 
 void scanEndedCB(NimBLEScanResults results);
-bool connectToServer();
 
-static NimBLEAdvertisedDevice *advDevice;
-
-static bool doConnect = false;
-static bool connected = false;
-NimBLERemoteCharacteristic *remoteCommandChr = nullptr;
-
-static uint32_t scanTime = 0; /** 0 = scan forever */
+using NotifyFn = std::function<void(NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)>;
 
 /**  None of these are required as they will be handled by the library with defaults. **
  **                       Remove as you see fit for your needs                        */
 class ClientCallbacks : public NimBLEClientCallbacks
 {
+public:
+    ClientCallbacks(SonyCamera *cameraRef)
+    {
+        this->cameraRef = cameraRef;
+    }
+
+private:
+    SonyCamera *cameraRef;
+
     void onConnect(NimBLEClient *pClient)
     {
         Serial.println("Connected");
@@ -42,10 +31,10 @@ class ClientCallbacks : public NimBLEClientCallbacks
 
     void onDisconnect(NimBLEClient *pClient)
     {
-        connected = false;
+        cameraRef->connected = false;
         Serial.print(pClient->getPeerAddress().toString().c_str());
         Serial.println(" Disconnected - Starting scan");
-        NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
+        NimBLEDevice::getScan()->start(cameraRef->scanTime, scanEndedCB);
     };
 
     /** Called when the peripheral requests a change to the connection parameters.
@@ -141,6 +130,14 @@ bool isCameraReadyToPair(std::__cxx11::string data)
 /** Define a class to handle the callbacks when advertisements are received */
 class AdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
 {
+public:
+    AdvertisedDeviceCallbacks(SonyCamera *camera)
+    {
+        this->cameraRef = camera;
+    }
+
+private:
+    SonyCamera *cameraRef;
 
     void onResult(NimBLEAdvertisedDevice *advertisedDevice)
     {
@@ -160,10 +157,10 @@ class AdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
                 NimBLEDevice::getScan()->stop();
 
                 /** Save the device reference in a global for the client to use */
-                advDevice = advertisedDevice;
+                this->cameraRef->advDevice = advertisedDevice;
 
                 // /** Ready to connect now */
-                doConnect = true;
+                this->cameraRef->doConnect = true;
             }
             else
             {
@@ -173,18 +170,18 @@ class AdvertisedDeviceCallbacks : public NimBLEAdvertisedDeviceCallbacks
     };
 };
 
-/** Notification / Indication receiving handler callback */
-void notifyCB(NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
-{
-    std::string str = (isNotify == true) ? "Notification" : "Indication";
-    str += " from ";
-    /** NimBLEAddress and NimBLEUUID have std::string operators */
-    str += std::string(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress());
-    str += ": Service = " + std::string(pRemoteCharacteristic->getRemoteService()->getUUID());
-    str += ", Characteristic = " + std::string(pRemoteCharacteristic->getUUID());
-    str += ", Value = " + std::string((char *)pData, length);
-    Serial.println(str.c_str());
-}
+// /** Notification / Indication receiving handler callback */
+// void notifyCB(NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify)
+// {
+//     std::string str = (isNotify == true) ? "Notification" : "Indication";
+//     str += " from ";
+//     /** NimBLEAddress and NimBLEUUID have std::string operators */
+//     str += std::string(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress());
+//     str += ": Service = " + std::string(pRemoteCharacteristic->getRemoteService()->getUUID());
+//     str += ", Characteristic = " + std::string(pRemoteCharacteristic->getUUID());
+//     str += ", Value = " + std::string((char *)pData, length);
+//     Serial.println(str.c_str());
+// }
 
 /** Callback to process the results of the last scan or restart it */
 void scanEndedCB(NimBLEScanResults results)
@@ -192,11 +189,12 @@ void scanEndedCB(NimBLEScanResults results)
     Serial.println("Scan Ended");
 }
 
-/** Create a single global instance of the callback class to be used by all clients */
-static ClientCallbacks clientCB;
+SonyCamera::SonyCamera()
+{
+}
 
 /** Handles the provisioning of clients and connects / interfaces with the server */
-bool connectToServer()
+bool SonyCamera::connectToServer()
 {
     NimBLEClient *pClient = nullptr;
 
@@ -239,7 +237,7 @@ bool connectToServer()
 
         Serial.println("New client created");
 
-        pClient->setClientCallbacks(&clientCB, false);
+        pClient->setClientCallbacks(new ClientCallbacks(this), false);
         /** Set initial connection parameters: These settings are 15ms interval, 0 latency, 120ms timout.
          *  These settings are safe for 3 clients to connect reliably, can go faster if you have less
          *  connections. Timeout should be a multiple of the interval, minimum is 100ms.
@@ -300,7 +298,23 @@ bool connectToServer()
             if (remoteNotifyChr->canNotify())
             {
                 Serial.println("0xFF02 can notify!");
-                if (!remoteNotifyChr->subscribe(true, notifyCB))
+
+                SonyCamera *cameraRef = this;
+                NotifyFn notifyCb = [cameraRef](NimBLERemoteCharacteristic *pRemoteCharacteristic, uint8_t *pData, size_t length, bool isNotify) -> void
+                {
+                    std::string str = (isNotify == true) ? "Notification" : "Indication";
+                    str += " from ";
+                    /** NimBLEAddress and NimBLEUUID have std::string operators */
+                    str += std::string(pRemoteCharacteristic->getRemoteService()->getClient()->getPeerAddress());
+                    str += ": Service = " + std::string(pRemoteCharacteristic->getRemoteService()->getUUID());
+                    str += ", Characteristic = " + std::string(pRemoteCharacteristic->getUUID());
+                    str += ", Value = " + std::string((char *)pData, length);
+                    Serial.println(str.c_str());
+
+                    cameraRef->handleCameraNotification(pData, length);
+                };
+
+                if (!remoteNotifyChr->subscribe(true, notifyCb))
                 {
                     /** Disconnect if subscribe failed */
                     pClient->disconnect();
@@ -313,6 +327,9 @@ bool connectToServer()
                 pClient->disconnect();
                 return false;
             }
+
+            delay(500);
+            remoteCommandChr->writeValue(SHUTTER_RELEASED);
 
             connected = true;
 
@@ -461,7 +478,7 @@ bool connectToServer()
     return true;
 }
 
-void connectToSony()
+void SonyCamera::startScan()
 {
     /** Initialize NimBLE, no device name needed as we are not advertising */
     NimBLEDevice::init("");
@@ -496,7 +513,7 @@ void connectToSony()
     NimBLEScan *pScan = NimBLEDevice::getScan();
 
     /** create a callback that gets called when advertisers are found */
-    pScan->setAdvertisedDeviceCallbacks(new AdvertisedDeviceCallbacks());
+    pScan->setAdvertisedDeviceCallbacks(new AdvertisedDeviceCallbacks(this));
 
     /** Set scan interval (how often) and window (how long) in milliseconds */
     pScan->setInterval(45);
@@ -512,7 +529,7 @@ void connectToSony()
     pScan->start(scanTime, scanEndedCB);
 }
 
-void sonyCameraLoop()
+void SonyCamera::loop()
 {
     /** Loop here until we find a device we want to connect to */
     if (!doConnect)
@@ -536,19 +553,39 @@ void sonyCameraLoop()
     // NimBLEDevice::getScan()->start(scanTime, scanEndedCB);
 }
 
-bool sonyIsConnected()
+uint16_t commandToValue(CameraCommand cmd)
 {
-    return connected;
-}
+    switch (cmd)
+    {
+    case PressToFocus:
+        return PRESS_TO_FOCUS;
 
-bool sendSony(uint16_t value)
+    case HoldFocus:
+        return HOLD_FOCUS;
+
+    case TakePicture:
+        return TAKE_PICTURE;
+
+    case ShutterReleased:
+    default:
+        return SHUTTER_RELEASED;
+    }
+};
+
+bool SonyCamera::send(CameraCommand cmd)
 {
+    uint16_t value = commandToValue(cmd);
+
     if (connected && remoteCommandChr->canWrite())
     {
         if (remoteCommandChr->writeValue(value))
         {
-            Serial.print("Wrote new value to: ");
+            Serial.print("Wrote new value ");
+            Serial.printf("%#06x", value);
+            Serial.print(" to: ");
             Serial.println(remoteCommandChr->getUUID().toString().c_str());
+
+            return true;
         }
         else
         {
@@ -559,4 +596,160 @@ bool sendSony(uint16_t value)
     {
         return false;
     }
+}
+
+void SonyCamera::handleCameraNotification(uint8_t *data, uint16_t length)
+{
+
+    Serial.println("Camera data: ");
+    Serial.print("LEN: ");
+    Serial.print(length);
+    Serial.print(" DATA: ");
+    for (int n = 0; n < length; n++)
+    {
+        Serial.print(" ");
+        Serial.print(data[n], HEX);
+        Serial.print(" ");
+    }
+    Serial.write("\0\n");
+    Serial.flush();
+
+    if (length == 3)
+    {
+        if (data[0] == 0x02)
+        {
+            switch (data[1])
+            {
+            case 0x3F:
+                focusStatus = data[2];
+
+                if (focusStatus == 0x20)
+                {
+                    // rs->set(Status::FOCUS_ACQUIRED);
+                }
+                else
+                {
+                    // rs->set(Status::READY);
+                }
+
+                break;
+
+            case 0xA0:
+                shutterStatus = data[2];
+
+                if (shutterStatus == 0x20)
+                {
+                    // rs->set(Status::SHUTTER);
+                }
+                else
+                {
+                    // rs->set(Status::READY);
+                }
+
+                break;
+
+            case 0xD5:
+                recordingStatus = data[2];
+                break;
+            }
+
+            last_message = micros();
+        }
+    }
+}
+
+void SonyCamera::trigger()
+{
+    // // hack until I get this to work
+    // uint32_t timeout = millis() + 3000;
+
+    // if (!focusHeld)
+    // {
+    //     // Reset focus status
+    //     focusStatus = 0x00;
+
+    //     // Focus
+    //     send(PressToFocus);
+
+    //     if (mode == AUTO_FOCUS)
+    //     {
+    //         while (focusStatus != 0x20)
+    //         {
+    //             yield();
+
+    //             if (timeout < millis())
+    //             {
+    //                 break;
+    //             }
+    //         }
+    //     }
+    // }
+
+    // // Release back to focus
+    // send(HoldFocus);
+
+    // // Reset focus status
+    // shutterStatus = 0x00;
+
+    // // Shutter
+    // send(TakePicture);
+
+    // if (mode == AUTO_FOCUS)
+    // {
+    //     while (shutterStatus != 0x20)
+    //     {
+    //         yield();
+
+    //         if (timeout < millis())
+    //         {
+    //             break;
+    //         }
+    //     }
+    // }
+
+    // // Release back to focus
+    // send(HoldFocus);
+
+    // delay(10);
+
+    // // Let go?
+    // send(ShutterReleased);
+
+    uint32_t timeout = millis() + 3000;
+
+    // send(PressToFocus);
+    // delay(timeout);
+
+    send(PressToFocus);
+    send(HoldFocus);
+    delay(timeout);
+
+    send(TakePicture);
+    delay(timeout);
+
+    send(ShutterReleased);
+    // delay(timeout);
+}
+
+void SonyCamera::focus()
+{
+    send(ShutterReleased);
+
+    // if (mode == AUTO_FOCUS)
+    // {
+    //     if (focusHeld)
+    //     {
+    //         // Focus
+    //         send(PressToFocus);
+    //     }
+    //     else
+    //     {
+    //         send(HoldFocus);
+
+    //         delay(10);
+
+    //         // Let go?
+    //         send(ShutterReleased);
+    //     }
+    // }
 }
