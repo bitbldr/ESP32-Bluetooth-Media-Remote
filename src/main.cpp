@@ -38,8 +38,8 @@ RTC_DATA_ATTR int clickCount = 0;
 RTC_DATA_ATTR int dblClickCount = 0;
 RTC_DATA_ATTR int pressHoldCount = 0;
 
-// auto sleep after 5 minutes of inactivity
-const unsigned long AUTO_SLEEP_INACTIVITY_TIMEOUT = 5 * 60 * 1000;
+// auto sleep after 8 hours of inactivity
+const unsigned long AUTO_SLEEP_INACTIVITY_TIMEOUT = 8 * 60 * 60 * 1000;
 const bool ENABLE_DEEP_SLEEP = true;
 
 // update battery level every 5 mins
